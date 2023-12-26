@@ -17,6 +17,9 @@ export default () => {
   const [loading, setLoading] = createSignal(false)
   const [controller, setController] = createSignal<AbortController>(null)
   const [isStick, setStick] = createSignal(false)
+  const [temperature, setTemperature] = createSignal(0.6)
+  const temperatureSetting = (value: number) => { setTemperature(value) }
+  const maxHistoryMessages = parseInt(import.meta.env.PUBLIC_MAX_HISTORY_MESSAGES || '9')
 
   createEffect(() => (isStick() && smoothToBottom()))
 
@@ -30,11 +33,11 @@ export default () => {
     })
 
     try {
-      if (localStorage.getItem('messageList'))
-        setMessageList(JSON.parse(localStorage.getItem('messageList')))
+      if (sessionStorage.getItem('messageList'))
+        setMessageList(JSON.parse(sessionStorage.getItem('messageList')))
 
-      if (localStorage.getItem('systemRoleSettings'))
-        setCurrentSystemRoleSettings(localStorage.getItem('systemRoleSettings'))
+      if (sessionStorage.getItem('systemRoleSettings'))
+        setCurrentSystemRoleSettings(sessionStorage.getItem('systemRoleSettings'))
 
       if (localStorage.getItem('stickToBottom') === 'stick')
         setStick(true)
@@ -49,8 +52,8 @@ export default () => {
   })
 
   const handleBeforeUnload = () => {
-    localStorage.setItem('messageList', JSON.stringify(messageList()))
-    localStorage.setItem('systemRoleSettings', currentSystemRoleSettings())
+    sessionStorage.setItem('messageList', JSON.stringify(messageList()))
+    sessionStorage.setItem('systemRoleSettings', currentSystemRoleSettings())
     isStick() ? localStorage.setItem('stickToBottom', 'stick') : localStorage.removeItem('stickToBottom')
   }
 
@@ -59,9 +62,6 @@ export default () => {
     if (!inputValue)
       return
 
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-expect-error
-    if (window?.umami) umami.trackEvent('chat_generate')
     inputRef.value = ''
     setMessageList([
       ...messageList(),
@@ -90,7 +90,7 @@ export default () => {
     try {
       const controller = new AbortController()
       setController(controller)
-      const requestMessageList = [...messageList()]
+      const requestMessageList = messageList().slice(-maxHistoryMessages)
       if (currentSystemRoleSettings()) {
         requestMessageList.unshift({
           role: 'system',
@@ -108,6 +108,7 @@ export default () => {
             t: timestamp,
             m: requestMessageList?.[requestMessageList.length - 1]?.content || '',
           }),
+          temperature: temperature(),
         }),
         signal: controller.signal,
       })
@@ -161,7 +162,9 @@ export default () => {
       setCurrentAssistantMessage('')
       setLoading(false)
       setController(null)
-      inputRef.focus()
+      // Disable auto-focus on touch devices
+      if (!('ontouchstart' in document.documentElement || navigator.maxTouchPoints > 0))
+        inputRef.focus()
     }
   }
 
@@ -185,7 +188,6 @@ export default () => {
       const lastMessage = messageList()[messageList().length - 1]
       if (lastMessage.role === 'assistant')
         setMessageList(messageList().slice(0, -1))
-
       requestWithLatestMessage()
     }
   }
@@ -194,7 +196,7 @@ export default () => {
     if (e.isComposing || e.shiftKey)
       return
 
-    if (e.keyCode === 13) {
+    if (e.key === 'Enter') {
       e.preventDefault()
       handleButtonClick()
     }
@@ -208,6 +210,7 @@ export default () => {
         setSystemRoleEditing={setSystemRoleEditing}
         currentSystemRoleSettings={currentSystemRoleSettings}
         setCurrentSystemRoleSettings={setCurrentSystemRoleSettings}
+        temperatureSetting={temperatureSetting}
       />
       <Index each={messageList()}>
         {(message, index) => (
